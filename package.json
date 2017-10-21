@@ -1,0 +1,25 @@
+{
+  "name": "createcharts",
+  "version": "1.0.0",
+  "description": "Learning Createjs",
+  "main": "index.js",
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development webpack-dev-server --hot --watch",
+    "build": "cross-env NODE_ENV=production webpack --progress --hide-modules"
+  },
+  "author": "todaylg",
+  "license": "MIT",
+  "devDependencies": {
+    "babel-core": "^6.26.0",
+    "babel-loader": "^7.1.2",
+    "babel-preset-env": "^1.6.1",
+    "cross-env": "^5.1.0",
+    "file-loader": "^1.1.5",
+    "webpack": "^3.8.1"
+  },
+  "dependencies": {
+    "graphdracula": "^1.1.2",
+    "raphael": "^2.2.7",
+    "svg-arc-to-cubic-bezier": "^3.0.0"
+  }
+}
