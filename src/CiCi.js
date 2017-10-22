@@ -6,12 +6,14 @@ let canvas, stage;
 // Aliases
 let Stage = createjs.Stage,
     Shape = createjs.Shape,
+    Text = createjs.Text,
     Graphics = createjs.Graphics,
     Container = createjs.Container;
 
 let edgeContainer = new Container(),
     arrowContainer = new Container(),
     nodeContainer = new Container(),
+    textContainer = new Container(),
     dragContainer = new Container();
 
 // For scale limmit
@@ -33,6 +35,7 @@ let point = {};
 let nodeList = {},// Cache node
     edgeList = {},// Cache edge
     arrowList = {},// Cache arrow
+    textList = {},// Cache text
     edgeInfoList = {},// Cache edge info
 
     bezierList = {};// Cache bezierCurve to Deal with 2 bezierCurve
@@ -44,7 +47,7 @@ let nodeList = {},// Cache node
 let nodeFlag = false;
 
 /**
- * CreateCharts is the core method for initialization
+ * CiCi is the core method for initialization
  * @param {Object} opts
  * opts defined some init options
  * For example:(after "..." means no necessary)
@@ -57,12 +60,12 @@ let nodeFlag = false;
  *      edges:{{data: { source:'a',target:'b'
  *                      ...curveStyle:'bezier',targetShape:'triangle',sourceShape:'circle'}}}
  */
-function CiCi(opts) {
+function CiCi({container,elements}) {
 
-    opts = Object.assign({}, opts);
+    //opts = Object.assign({}, opts);
 
-    if(!opts.container) return;// Todo => Throw error
-    canvas = opts.container;
+    if(!container||!elements) return;// Todo => Throw error
+    canvas = container;
 
     // Enable touch interactions if supported on the current device:
     createjs.Touch.enable(stage);
@@ -72,9 +75,9 @@ function CiCi(opts) {
     stage.mouseMoveOutside = true; 
     stage.enableMouseOver(10);
     // Auto update stage
+    createjs.Ticker.framerate = 60;
     createjs.Ticker.addEventListener("tick", stage);
 
-    let elements = opts.elements;
     let nodes = [];
     let edges = [];
 
@@ -141,6 +144,7 @@ function CiCi(opts) {
     stage.addChild(edgeContainer);
     stage.addChild(arrowContainer);
     stage.addChild(nodeContainer);// Node above edge and arrow
+    stage.addChild(textContainer);// Text above node
     stage.addChild(dragContainer);// Hightest level
 }
 
@@ -192,6 +196,11 @@ function initializeNodes(nodes, edges) {
         circle.drawCircle(0, 0, width);
         circle.endFill();
 
+        //Draw NodeText
+        if(node.text){ 
+            drawText(node, node.x, node.y);
+        }
+
         graphics = setNode(graphics, node.id);
 
         // Move the graph to its designated position
@@ -200,6 +209,44 @@ function initializeNodes(nodes, edges) {
 
         nodeContainer.addChild(graphics);
     }
+}
+
+/**
+ * DrawText method use for update text when node position change
+ * @param {Object} nodeInfo 
+ * text=>node text to show 
+ * id=> use for set text id 
+ * x/y => text position
+ * textOpts => text style
+ */
+function drawText({text, id, textOpts={}}, x, y){
+    if(text===''||text===undefined) return;
+    if(textList[id])textContainer.removeChild(textList[id]);
+    let nodeText = new Text(text,textOpts.font||'36px Arial',textOpts.color||'white');
+    x += textOpts.disX||0;
+    y += textOpts.disY||0;
+
+    //test
+    //console.log(nodeText);
+
+    nodeText.textAlign = 'center';
+    nodeText.textBaseline = 'middle';
+    nodeText = Object.assign(nodeText,textOpts);
+    nodeText.x = x;
+    nodeText.y = y;
+    // Cache text
+    textList[id] = nodeText;
+    textContainer.addChild(nodeText);
+}
+
+/**
+ * UpdateText method use for update text when node position change
+ * @param {String} id
+ * @param {Object} newPos
+ */
+let updateText = function (id, newPos) {
+    textList[id].x = newPos.x;
+    textList[id].y = newPos.y;
 }
 
 /**
@@ -222,7 +269,9 @@ function setNode(graph, id) {
         target.data = null;
         // Put back the original container
         dragContainer.removeChild(this);
+        dragContainer.removeChild(textList[id]);
         nodeContainer.addChild(this);
+        textContainer.addChild(textList[id]);
         nodeFlag = false;
     }
 
@@ -231,8 +280,11 @@ function setNode(graph, id) {
         this.x = newPosition.x;
         this.y = newPosition.y;
         updateEdge(id, newPosition);// id => closure
+        updateText(id, newPosition);
+        textContainer.removeChild(textList[id]);
         nodeContainer.removeChild(this);
         dragContainer.addChild(this);
+        dragContainer.addChild(textList[id]);
     }
 
     /**
@@ -254,9 +306,9 @@ function setNode(graph, id) {
     /**
      * @param {Object} data
      * @param {Bool} targetFlag
-     * @param {Object} newPos
+     * @param {Object} newPos {x,y}
      */
-    let drawNewEdge = function (data, targetFlag, newPos) {
+    let drawNewEdge = function (data, targetFlag, {x,y}) {
 
         // Find the line from cache list
         let oldLine = edgeList[data.id];
@@ -266,11 +318,11 @@ function setNode(graph, id) {
 
         // Update for this frame
         if (targetFlag) {
-            nodeList[data.target].x = newPos.x;
-            nodeList[data.target].y = newPos.y;
+            nodeList[data.target].x = x;
+            nodeList[data.target].y = y;
         } else {
-            nodeList[data.source].x = newPos.x;
-            nodeList[data.source].y = newPos.y;
+            nodeList[data.source].x = x;
+            nodeList[data.source].y = y;
         }
 
         let source = nodeList[data.source],// Begin position (Node)
@@ -282,12 +334,12 @@ function setNode(graph, id) {
         // Save position changed
         if (targetFlag) {
             // Save target node
-            nodeList[data.target].x = newPos.x;
-            nodeList[data.target].y = newPos.y;
+            nodeList[data.target].x = x;
+            nodeList[data.target].y = y;
         } else {
             // Save source node
-            nodeList[data.source].x = newPos.x;
-            nodeList[data.source].y = newPos.y;
+            nodeList[data.source].x = x;
+            nodeList[data.source].y = y;
         }
 
     }
@@ -331,6 +383,7 @@ function drawArrowAndEdge(data, source, target) {
                 // For test
                 //drawCircle(pos2.x, pos2.y, 5);
 
+                if(data.text)drawText(data, (bMidPos.x1+bMidPos.x2)/2, (bMidPos.y1+bMidPos.y2)/2);
                 newTargetPos = drawArrowShape(data.id, data.targetShape, pos2, target, source, target, true);
                 break;
             case "quadraticCurve":
@@ -343,6 +396,7 @@ function drawArrowAndEdge(data, source, target) {
                 newTargetPos = drawArrowShape(data.id, data.targetShape, cMidPos, target, source, target, true);
                 break;
             default:
+                if(data.text)drawText(data, (source.x+target.x)/2, (source.y+target.y)/2);
                 newTargetPos = drawArrowShape(data.id, data.targetShape, source, target, source, target, true);
                 break;
         }
@@ -356,7 +410,8 @@ function drawArrowAndEdge(data, source, target) {
                 
                 // For test
                 //drawCircle(pos1.x, pos1.y, 5);
-
+                
+                if(data.text)drawText(data, (bMidPos.x1+bMidPos.x2)/2, (bMidPos.y1+bMidPos.y2)/2);
                 newSourcePos = drawArrowShape(data.id, data.sourceShape, source, pos1, source, target, false);
                 break;
             case "quadraticCurve":
@@ -369,6 +424,7 @@ function drawArrowAndEdge(data, source, target) {
                 newSourcePos = drawArrowShape(data.id, data.sourceShape, source, cMidPos, source, target, false);
                 break;
             default:
+                if(data.text)drawText(data, (source.x+target.x)/2, (source.y+target.y)/2);
                 newSourcePos = drawArrowShape(data.id, data.sourceShape, source, target, source, target, false);
                 break;
         }
@@ -426,6 +482,7 @@ function drawArrowShape(id, shape, sourcePos, targetPos, source, target, targetF
             if ((Math.abs(source.y - target.y) < c_nodeRadius * 1.5) &&
                 (Math.abs(source.x - target.x) < c_nodeRadius * 1.5)) {
                 c_nodeRadius = 0;
+                if(textList[id])textList[id].visible = false;
             }
 
             let srcPos = targetFlag ? targetPos : sourcePos;
@@ -642,6 +699,7 @@ function initEvent(canvas) {
     hitArea.graphics.rect(0, 0, canvas.width, canvas.height);
     canvas.hitArea = hitArea;
 
+    // Could use bind
     canvas.addEventListener('mousedown', stagePointerDown);
     canvas.addEventListener('mouseup', stagePointerUp);
     canvas.addEventListener('mouseout', stagePointerUp);
