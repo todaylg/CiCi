@@ -5,7 +5,7 @@ import CiCi from './CiCi.js';
 * @param {Number} nodeNum
 * @param {Number} edgeNum
 */
-function autoGenera(nodeNum,edgeNum){
+function autoGenera(nodeNum){
     let resObj = {},nodes = [],edges = [];
     for(let i=0;i<nodeNum;i++){
         let data = {};
@@ -17,21 +17,11 @@ function autoGenera(nodeNum,edgeNum){
         if(i%2===0)data.color="#000";
         nodes.push(data);
     }
-    for(let i=0;i<edgeNum;i++){
-        let randomNode1 = Math.floor(Math.random()*nodeNum);
-        let randomNode2 = Math.floor(Math.random()*nodeNum);
-        //toFix => Node can arrow itself
-        if(randomNode1 === randomNode2){
-            if(randomNode1===1){
-                randomNode1++;
-            }else{
-                randomNode2++;
-            }
-        };
+    for(let i=0;i<nodeNum-1;i++){
         let data = {};
         data.id = String.fromCharCode(65+nodeNum+i);
-        data.source = nodes[randomNode1].id;
-        data.target = nodes[randomNode2].id;
+        data.source = nodes[Math.floor(Math.sqrt(i))].id;
+        data.target = nodes[i + 1].id;
         data.text = data.id;
         data.textOpts = {color:'#000',outline:2}
         if(i%2==0)data.curveStyle = 'bezier'
@@ -52,6 +42,6 @@ function autoGenera(nodeNum,edgeNum){
 
 CiCi({
     container: document.getElementById('testCanvas'),
-    elements: autoGenera(6, 6)
+    elements: autoGenera(100)
 
 })

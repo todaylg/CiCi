@@ -1,5 +1,5 @@
+
 import * as d3 from 'd3-force';
-import * as zoom from 'd3-zoom';
 import { CacBezierCurveMidPos, CacQuadraticCurveMidPos } from './Math';
 
 let canvas, stage;
@@ -18,10 +18,10 @@ let edgeContainer = new Container(),
     dragContainer = new Container();
 
 // For scale limmit
-const SCALE_MAX = 100, SCALE_MIN = 0.4;
+const SCALE_MAX = 100, SCALE_MIN = 0.2;
 
 // Fix canvas position offset
-const offsetX = 230, offsetY = 53;
+const offsetX = 0, offsetY = 0;
 
 // Defalut node radius
 // Node shape default is circle
@@ -73,12 +73,13 @@ function CiCi({ container, elements }) {
     createjs.Touch.enable(stage);
     // Enabled mouse over / out events
     stage = new Stage(canvas);
+
+    //Auto update stage
+    createjs.Ticker.timingMode = createjs.Ticker.RAF;
+    createjs.Ticker.addEventListener("tick", stage);
     // Keep tracking the mouse even when it leaves the canvas
     stage.mouseMoveOutside = true;
     stage.enableMouseOver(10);
-    // Auto update stage
-    createjs.Ticker.framerate = 60;
-    createjs.Ticker.addEventListener("tick", stage);
 
     let { nodes, edges } = elements;
 
@@ -108,7 +109,8 @@ function CiCi({ container, elements }) {
         }
         return true;
     }
-    let tempObj = {} , resNodes = [], resEdge = [];
+
+    let tempObj = {}, resNodes = [], resEdge = [];
     for (let i = 0, l = nodes.length; i < l; i++) {
         let data = nodes[i];
         let checkFlag = simpleCheck(data);
@@ -117,19 +119,19 @@ function CiCi({ container, elements }) {
             tempObj[data.id] = data;
         }
     }
-    console.log(tempObj);
+
     for (let i = 0, l = edges.length; i < l; i++) {
         let data = edges[i];
         let checkFlag = simpleCheck(data);
         if (checkFlag) {
-            if(tempObj[data.target]&&tempObj[data.source]){
+            if (tempObj[data.target] && tempObj[data.source]) {
                 edgeInfoList[data.id] = data;
                 resEdge.push(data);
-                if(!nodeList[data.target]){
+                if (!nodeList[data.target]) {
                     nodeList[data.target] = tempObj[data.target];
                     resNodes.push(tempObj[data.target]);
                 }
-                if(!nodeList[data.source]){
+                if (!nodeList[data.source]) {
                     nodeList[data.source] = tempObj[data.source];
                     resNodes.push(tempObj[data.source]);
                 }
@@ -137,21 +139,8 @@ function CiCi({ container, elements }) {
         }
     }
 
-    console.log(resNodes);
     //Init node
-    initializeNodes(resNodes, resEdge);
-
-    // Init edge
-    for (let i = 0, l = resEdge.length; i < l; i++) {
-        let data = resEdge[i];
-        if (data.source && data.target) {
-            // Get position info
-            let source = nodeList[data.source.id];
-            let target = nodeList[data.target.id];
-
-            drawArrowAndEdge(data, source, target);
-        }
-    }
+    initializeNodes(nodes, edges);
 
     // Init event
     initEvent(canvas);
@@ -172,67 +161,60 @@ function CiCi({ container, elements }) {
 function initializeNodes(nodes, edges) {
     //D3-force Layout
     simulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink().id((d) => d.id))
-        .force('center', d3.forceCenter(canvas.width / 2, canvas.height / 2))
         .force('charge', d3.forceManyBody())
+        .force('link', d3.forceLink(edges).id((d) => d.id).distance(150).strength(1))
+        .force('center', d3.forceCenter(canvas.width / 2, canvas.height / 2))
+        // .force("x", d3.forceX())
+        // .force("y", d3.forceY())
+        // .force("collide", d3.forceCollide().radius(function(d) { return d.width + 2; }).iterations(2))
 
-    //links方法后source和target变成对象了，而不是原来的字符串了
-    simulation.force('link').links(edges).distance(300).strength(0.5);
+    //初始化节点和节点文字
+    for (let i = 0, l = nodes.length, node; i < l; i++) {
+        node = nodes[i];
+        nodeList[node.id] = node;
+        //Draw node
+        let graphics = new Shape();
+        let circle = graphics.graphics;
+        if (node.color) {
+            circle.beginFill(node.color);
+        } else {
+            circle.beginFill("#66CCFF");
+        }
+
+        drawText(node, node.x, node.y);
+
+        let width = nodeWidth;
+        if (node.width) width = node.width;
+        circle.drawCircle(0, 0, width);
+        circle.endFill();
+
+        graphics = setNode(graphics, node.id);
+
+        //Move the graph to its designated position
+        graphics.x = node.x;
+        graphics.y = node.y;
+        circleList[node.id] = graphics;
+        nodeContainer.addChild(graphics);
+    }
 
     let ticked = function () {
         nodes.forEach(drawNode);
+        edges.forEach(drawEdge);
+        stage.update();
     }
 
     let drawNode = function (node) {
-        nodeList[node.id] = node;
-        if (!circleList[node.id]) {//Node只有初次渲染的时候需要绘制
-            //Draw node
-            let graphics = new Shape();
-            let circle = graphics.graphics;
-            if (node.color) {
-                circle.beginFill(node.color);
-            } else {
-                circle.beginFill("#66CCFF");
-            }
-
-            drawText(node, node.x, node.y);
-
-            let width = nodeWidth;
-            if (node.width) width = node.width;
-            circle.drawCircle(0, 0, width);
-            circle.endFill();
-
-            graphics = setNode(graphics, node.id);
-
-            //Move the graph to its designated position
-            graphics.x = node.x;
-            graphics.y = node.y;
-            circleList[node.id] = graphics;
-            nodeContainer.addChild(graphics);
-        } else {//只需要移动位置
-            circleList[node.id].x = node.x;
-            circleList[node.id].y = node.y;
-            updateText(node.id, { x: node.x, y: node.y });
-        }
-
-        //Edge的更新有两个条件
-        //1.变动的节点通过边连接的另外一个节点是否已经完成了初始化被赋予了坐标
-        //2.变动的节点是有边相连接的
-        for (let i = 0, l = edges.length; i < l; i++) {
-            let data = edges[i],
-                id = data.id;
-            if (nodeList[data.source.id] && nodeList[data.target.id]) {//条件1
-                if (data.source.id === node.id || data.target.id === node.id) {//条件2
-                    //Get position info
-                    let source = nodeList[data.source.id];
-                    let target = nodeList[data.target.id];
-                    drawArrowAndEdge(data, source, target);
-                }
-            }
-        }
+        //只需要移动位置
+        circleList[node.id].x = node.x;
+        circleList[node.id].y = node.y;
+        updateText(node.id, { x: node.x, y: node.y });
     }
-    simulation.on('tick', ticked);
 
+    let drawEdge = function (edge) {
+        drawArrowAndEdge(edge, edge.source, edge.target);
+    }
+
+    simulation.on('tick', ticked);
 }
 
 /**
@@ -249,9 +231,6 @@ function drawText({ text, id, textOpts = {} }, x, y) {
     let nodeText = new Text(text, textOpts.font || '36px Arial', textOpts.color || 'white');
     x += textOpts.disX || 0;
     y += textOpts.disY || 0;
-
-    //test
-    //console.log(nodeText);
 
     nodeText.textAlign = 'center';
     nodeText.textBaseline = 'middle';
@@ -290,8 +269,8 @@ function setNode(graph, id) {
     let onDragEnd = function (event) {
         simulation.alphaTarget(0);
         //Sticky or not
-        // nodeList[id].fx = null;
-        // nodeList[id].fy = null;
+        nodeList[id].fx = null;
+        nodeList[id].fy = null;
         let target = event.target;
         target.dragging = false;
         // Set the interaction data to null
@@ -306,11 +285,11 @@ function setNode(graph, id) {
 
     let onDragMove = function (event) {
         let newPosition = stage.globalToLocal(event.stageX, event.stageY);
-        //这是节点图形位置更新而已
         this.x = newPosition.x;
         this.y = newPosition.y;
         updateNode(id, newPosition);
-        updateEdge(id, newPosition);// id => closure
+        // data drive document
+        //updateEdge(id, newPosition);// change node pos enough
         updateText(id, newPosition);
         textContainer.removeChild(textList[id]);
         nodeContainer.removeChild(this);
@@ -319,79 +298,23 @@ function setNode(graph, id) {
     }
 
     //图钉效果
-    let onDbClick = function(){
-        nodeList[id].fx = null;
-        nodeList[id].fy = null;
-    }
+    // let onDbClick = function(){
+    //     nodeList[id].fx = null;
+    //     nodeList[id].fy = null;
+    // }
 
-    let updateNode = function(id, newPos){
+    let updateNode = function (id, newPos) {
         nodeList[id].x = newPos.x;
         nodeList[id].y = newPos.y;
         nodeList[id].fx = newPos.x;
         nodeList[id].fy = newPos.y;
-    }
-    /**
-     * UpdateEdge method use for update edge when node position change
-     * @param {String} id
-     * @param {Object} newPos
-     */
-    let updateEdge = function (id, newPos) {
-        // A node may be connected to multiple lines
-        for (let element in edgeInfoList) {
-            if (edgeInfoList[element].target.id === id) {
-                drawNewEdge(edgeInfoList[element], true, newPos);
-            } else if (edgeInfoList[element].source.id === id) {
-                drawNewEdge(edgeInfoList[element], false, newPos);
-            }
-        };
-    }
-
-    /**
-     * @param {Object} data
-     * @param {Bool} targetFlag
-     * @param {Object} newPos {x,y}
-     */
-    let drawNewEdge = function (data, targetFlag, { x, y }) {
-
-        // Find the line from cache list
-        let oldLine = edgeList[data.id];
-
-        // Remove old line
-        edgeContainer.removeChild(oldLine);
-
-        // Update for this frame
-        if (targetFlag) {
-            nodeList[data.target.id].x = x;
-            nodeList[data.target.id].y = y;
-        } else {
-            nodeList[data.source.id].x = x;
-            nodeList[data.source.id].y = y;
-        }
-
-        let source = nodeList[data.source.id],// Begin position (Node)
-            target = nodeList[data.target.id];// End position (Node)
-
-        //Redraw 
-        drawArrowAndEdge(data, source, target);
-
-        // Save position changed
-        if (targetFlag) {
-            // Save target node
-            nodeList[data.target.id].x = x;
-            nodeList[data.target.id].y = y;
-        } else {
-            // Save source node
-            nodeList[data.source.id].x = x;
-            nodeList[data.source.id].y = y;
-        }
-
     }
 
     graph.cursor = "pointer";
     graph.on('mousedown', onDragStart);
     graph.on('pressup', onDragEnd);
     graph.on('pressmove', onDragMove);
-    graph.on('dblclick', onDbClick);
+    //graph.on('dblclick', onDbClick);
 
     return graph;
 }
@@ -414,16 +337,9 @@ function drawArrowAndEdge(data, source, target) {
             case "bezier":
                 // CacBezierCurve
                 let bMidPos = CacBezierCurveMidPos(source, target);
-                // Todo => complete bezierList
-                // if (bezierList[source + '+' + target]) {
-                //     bezierList[source + '+' + target] = 1;//'source+target'
-                // } else {
-                //     bezierList[source + '+' + target]++;
-                // }
 
                 let pos2 = { x: bMidPos.x2, y: bMidPos.y2 }
-
-                if (data.text) drawText(data, (bMidPos.x1 + bMidPos.x2) / 2, (bMidPos.y1 + bMidPos.y2) / 2);
+                if (textList[data.id]) updateText(data.id, { x: (bMidPos.x1 + bMidPos.x2) / 2, y: (bMidPos.y1 + bMidPos.y2) / 2 });
                 newTargetPos = drawArrowShape(data.id, data.targetShape, pos2, target, source, target, true);
                 break;
             case "quadraticCurve":
@@ -432,7 +348,7 @@ function drawArrowAndEdge(data, source, target) {
                 newTargetPos = drawArrowShape(data.id, data.targetShape, cMidPos, target, source, target, true);
                 break;
             default:
-                if (data.text) drawText(data, (source.x + target.x) / 2, (source.y + target.y) / 2);
+                if (textList[data.id]) updateText(data.id, { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 });
                 newTargetPos = drawArrowShape(data.id, data.targetShape, source, target, source, target, true);
                 break;
         }
@@ -444,7 +360,7 @@ function drawArrowAndEdge(data, source, target) {
                 let bMidPos = CacBezierCurveMidPos(source, target);
                 let pos1 = { x: bMidPos.x1, y: bMidPos.y1 }
 
-                if (data.text) drawText(data, (bMidPos.x1 + bMidPos.x2) / 2, (bMidPos.y1 + bMidPos.y2) / 2);
+                if (textList[data.id]) updateText(data.id, { x: (bMidPos.x1 + bMidPos.x2) / 2, y: (bMidPos.y1 + bMidPos.y2) / 2 });
                 newSourcePos = drawArrowShape(data.id, data.sourceShape, source, pos1, source, target, false);
                 break;
             case "quadraticCurve":
@@ -453,7 +369,7 @@ function drawArrowAndEdge(data, source, target) {
                 newSourcePos = drawArrowShape(data.id, data.sourceShape, source, cMidPos, source, target, false);
                 break;
             default:
-                if (data.text) drawText(data, (source.x + target.x) / 2, (source.y + target.y) / 2);
+                if (textList[data.id]) updateText(data.id, { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 });
                 newSourcePos = drawArrowShape(data.id, data.sourceShape, source, target, source, target, false);
                 break;
         }
@@ -471,21 +387,23 @@ function drawArrowAndEdge(data, source, target) {
         line.setStrokeStyle(4).beginStroke("#FFF");
     }
     line.moveTo(tempSourcePos.x, tempSourcePos.y);
-    switch (data.curveStyle) {
-        case "bezier":
-            // Cacular Third Bezier Curve's Mid pos
-            let cPos = CacBezierCurveMidPos(tempSourcePos, tempTargetPos, 100);
-            line.bezierCurveTo(cPos.x1, cPos.y1, cPos.x2, cPos.y2, cPos.x, cPos.y);
-            break;
-        case "quadraticCurve":
-            // Cacular Second Bezier Curve's Mid pos
-            let bPos = CacQuadraticCurveMidPos(tempSourcePos, tempTargetPos, 100);
-            line.quadraticCurveTo(bPos.x, bPos.y, tempTargetPos.x, tempTargetPos.y);
-            break;
-        default:
-            line.lineTo(tempTargetPos.x, tempTargetPos.y);
-            break;
+    if (data.curveStyle) {
+        switch (data.curveStyle) {
+            case "bezier":
+                // Cacular Third Bezier Curve's Mid pos
+                let cPos = CacBezierCurveMidPos(tempSourcePos, tempTargetPos, 100);
+                line.bezierCurveTo(cPos.x1, cPos.y1, cPos.x2, cPos.y2, cPos.x, cPos.y);
+                break;
+            case "quadraticCurve":
+                // Cacular Second Bezier Curve's Mid pos
+                let bPos = CacQuadraticCurveMidPos(tempSourcePos, tempTargetPos, 100);
+                line.quadraticCurveTo(bPos.x, bPos.y, tempTargetPos.x, tempTargetPos.y);
+                break;
+        }
+    } else {
+        line.lineTo(tempTargetPos.x, tempTargetPos.y);
     }
+    
     edgeList[data.id] = graphics;
 
     edgeContainer.addChild(graphics);
@@ -502,7 +420,6 @@ function drawArrowAndEdge(data, source, target) {
  * @param {Bool} targetFlag  draw source or target arrow
  */
 function drawArrowShape(id, shape, sourcePos, targetPos, source, target, targetFlag) {
-
     switch (shape) {
         case 'circle':
             let c_nodeRadius = nodeWidth;
