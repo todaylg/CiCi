@@ -1,4 +1,3 @@
-
 import * as d3 from 'd3-force';
 import { CacBezierCurveMidPos, CacQuadraticCurveMidPos } from './Math';
 
@@ -6,6 +5,7 @@ let canvas, stage;
 
 // Aliases
 let Stage = createjs.Stage,
+    StageGL = createjs.StageGL,
     Shape = createjs.Shape,
     Text = createjs.Text,
     Graphics = createjs.Graphics,
@@ -21,7 +21,7 @@ let edgeContainer = new Container(),
 const SCALE_MAX = 100, SCALE_MIN = 0.2;
 
 // Fix canvas position offset
-const offsetX = 0, offsetY = 0;
+const offsetX = 230, offsetY = 65;
 
 // Defalut node radius
 // Node shape default is circle
@@ -37,7 +37,7 @@ let nodeList = {},// Cache node
     edgeList = {},// Cache edge
     arrowList = {},// Cache arrow
     textList = {},// Cache text
-    edgeInfoList = {},// Cache edge info
+    lineList = {},// Cache edge info
 
     bezierList = {},// Cache bezierCurve to Deal with 2 bezierCurve
     circleList = {};// Cache init node shape info
@@ -48,10 +48,13 @@ let nodeList = {},// Cache node
 
 // Fix Events trigger conflict between nativeEvent and CreatejsEvent
 let nodeFlag = false;
+let pinEffectFlag = false;
 let simulation;// D3-force simulation
 
+//Event 
+let graphMousedownEvent, graphPressupEvent, graphPressmoveEvent;
 /**
- * CiCi is the core method for initialization
+ * CreateCharts is the core method for initialization
  * @param {Object} opts
  * opts defined some init options
  * For example:(after "..." means no necessary)
@@ -64,7 +67,7 @@ let simulation;// D3-force simulation
  *      edges:{ source:'a',target:'b'
  *                      ...curveStyle:'bezier',targetShape:'triangle',sourceShape:'circle'}}
  */
-function CiCi({ container, elements }) {
+function CreateCharts({ container, elements }) {
 
     if (!container) return;// Todo => Throw error
     canvas = container;
@@ -74,7 +77,7 @@ function CiCi({ container, elements }) {
     // Enabled mouse over / out events
     stage = new Stage(canvas);
 
-    //Auto update stage
+    // Auto update stage
     createjs.Ticker.timingMode = createjs.Ticker.RAF;
     createjs.Ticker.addEventListener("tick", stage);
     // Keep tracking the mouse even when it leaves the canvas
@@ -87,57 +90,6 @@ function CiCi({ container, elements }) {
     canvas.height = window.innerHeight - offsetY;
     canvas.width = window.innerWidth - offsetX;
     canvas.style.background = '#d3d3d3';
-
-    // Extrac nodes/edges information 
-    let simpleCheck = function (data) {
-        let id = data.id;
-        // Simple check
-        if (data === null) {
-            console.error("Can't set node to null");
-            return false;
-        }
-        if (id !== null) {
-            // Check whether id is already exists
-            if ((nodeList[id] != undefined) || edgeList[id] != undefined) {
-                console.error("id已存在");
-                return false;
-            }
-        } else {
-            // Id is neccesary
-            console.error("id是必须参数");
-            return false;
-        }
-        return true;
-    }
-
-    let tempObj = {}, resNodes = [], resEdge = [];
-    for (let i = 0, l = nodes.length; i < l; i++) {
-        let data = nodes[i];
-        let checkFlag = simpleCheck(data);
-        if (checkFlag) {
-            //nodeList[data.id] = data;
-            tempObj[data.id] = data;
-        }
-    }
-
-    for (let i = 0, l = edges.length; i < l; i++) {
-        let data = edges[i];
-        let checkFlag = simpleCheck(data);
-        if (checkFlag) {
-            if (tempObj[data.target] && tempObj[data.source]) {
-                edgeInfoList[data.id] = data;
-                resEdge.push(data);
-                if (!nodeList[data.target]) {
-                    nodeList[data.target] = tempObj[data.target];
-                    resNodes.push(tempObj[data.target]);
-                }
-                if (!nodeList[data.source]) {
-                    nodeList[data.source] = tempObj[data.source];
-                    resNodes.push(tempObj[data.source]);
-                }
-            }
-        }
-    }
 
     //Init node
     initializeNodes(nodes, edges);
@@ -161,12 +113,12 @@ function CiCi({ container, elements }) {
 function initializeNodes(nodes, edges) {
     //D3-force Layout
     simulation = d3.forceSimulation(nodes)
-        .force('charge', d3.forceManyBody())
-        .force('link', d3.forceLink(edges).id((d) => d.id).distance(150).strength(1))
+        .force('charge', d3.forceManyBody().strength(-30).distanceMin(30))
+        .force('link', d3.forceLink(edges).id((d) => d.id).distance(330))//节点的查找方式为其id值
         .force('center', d3.forceCenter(canvas.width / 2, canvas.height / 2))
-        // .force("x", d3.forceX())
-        // .force("y", d3.forceY())
-        // .force("collide", d3.forceCollide().radius(function(d) { return d.width + 2; }).iterations(2))
+        //.force("collide", d3.forceCollide().radius(function(d) { return d.width; }).strength(0.7).iterations(1))
+        .force("x", d3.forceX().strength(0.1))
+        .force("y", d3.forceY().strength(0.1))
 
     //初始化节点和节点文字
     for (let i = 0, l = nodes.length, node; i < l; i++) {
@@ -188,7 +140,7 @@ function initializeNodes(nodes, edges) {
         circle.drawCircle(0, 0, width);
         circle.endFill();
 
-        graphics = setNode(graphics, node.id);
+        graphics = setNode(graphics, node.id, pinEffectFlag);
 
         //Move the graph to its designated position
         graphics.x = node.x;
@@ -258,7 +210,43 @@ let updateText = function (id, newPos) {
  * @param {String} id
  * @return {Shape}
  */
-function setNode(graph, id) {
+function setNode(graph, id, pinFlag) {
+    let onDragEnd;
+    if (pinFlag) {
+        onDragEnd = function (event) {
+            simulation.alphaTarget(0);
+            //Sticky or not
+            // nodeList[id].fx = null;
+            // nodeList[id].fy = null;
+            let target = event.target;
+            target.dragging = false;
+            // Set the interaction data to null
+            target.data = null;
+            // Put back the original container
+            dragContainer.removeChild(this);
+            dragContainer.removeChild(textList[id]);
+            nodeContainer.addChild(this);
+            textContainer.addChild(textList[id]);
+            nodeFlag = false;
+        }
+    } else {
+        onDragEnd = function (event) {
+            simulation.alphaTarget(0);
+            //Sticky or not
+            nodeList[id].fx = null;
+            nodeList[id].fy = null;
+            let target = event.target;
+            target.dragging = false;
+            // Set the interaction data to null
+            target.data = null;
+            // Put back the original container
+            dragContainer.removeChild(this);
+            dragContainer.removeChild(textList[id]);
+            nodeContainer.addChild(this);
+            textContainer.addChild(textList[id]);
+            nodeFlag = false;
+        }
+    }
 
     let onDragStart = function (event) {
         simulation.alphaTarget(0.3).restart();
@@ -266,22 +254,7 @@ function setNode(graph, id) {
         nodeFlag = true;
     }
 
-    let onDragEnd = function (event) {
-        simulation.alphaTarget(0);
-        //Sticky or not
-        nodeList[id].fx = null;
-        nodeList[id].fy = null;
-        let target = event.target;
-        target.dragging = false;
-        // Set the interaction data to null
-        target.data = null;
-        // Put back the original container
-        dragContainer.removeChild(this);
-        dragContainer.removeChild(textList[id]);
-        nodeContainer.addChild(this);
-        textContainer.addChild(textList[id]);
-        nodeFlag = false;
-    }
+
 
     let onDragMove = function (event) {
         let newPosition = stage.globalToLocal(event.stageX, event.stageY);
@@ -298,10 +271,10 @@ function setNode(graph, id) {
     }
 
     //图钉效果
-    // let onDbClick = function(){
-    //     nodeList[id].fx = null;
-    //     nodeList[id].fy = null;
-    // }
+    let onDbClick = function () {
+        nodeList[id].fx = null;
+        nodeList[id].fy = null;
+    }
 
     let updateNode = function (id, newPos) {
         nodeList[id].x = newPos.x;
@@ -314,9 +287,18 @@ function setNode(graph, id) {
     graph.on('mousedown', onDragStart);
     graph.on('pressup', onDragEnd);
     graph.on('pressmove', onDragMove);
-    //graph.on('dblclick', onDbClick);
+    if (pinFlag) {
+        graph.on('dblclick', onDbClick);
+    }
 
     return graph;
+}
+
+function resetNodes() {
+    for (let circle in circleList) {
+        circleList[circle].removeAllEventListeners();
+        setNode(circleList[circle], circle, pinEffectFlag);
+    }
 }
 
 /**
@@ -328,7 +310,7 @@ function setNode(graph, id) {
 function drawArrowAndEdge(data, source, target) {
 
     // Remove old edge (drawArrowShape will remove old arrow)
-    if (edgeList[data.id]) edgeContainer.removeChild(edgeList[data.id]);
+    if (lineList[data.id]) edgeContainer.removeChild(lineList[data.id]);
 
     // Draw Arrow
     let newSourcePos, newTargetPos;
@@ -403,8 +385,8 @@ function drawArrowAndEdge(data, source, target) {
     } else {
         line.lineTo(tempTargetPos.x, tempTargetPos.y);
     }
-    
-    edgeList[data.id] = graphics;
+
+    lineList[data.id] = graphics;
 
     edgeContainer.addChild(graphics);
 }
@@ -645,14 +627,51 @@ function initEvent(canvas) {
     let startMousePos = {};
     let hitArea = new Shape();
     let canvasDragging = false;
-    hitArea.graphics.rect(0, 0, canvas.width, canvas.height);
-    canvas.hitArea = hitArea;
 
     // Could use bind
     canvas.addEventListener('mousedown', stagePointerDown);
     canvas.addEventListener('mouseup', stagePointerUp);
     canvas.addEventListener('mouseout', stagePointerUp);
     canvas.addEventListener('mousemove', stagePointerMove);
+    canvas.addEventListener('contextmenu', onContextMenu);
+
+    let menu = document.querySelector('.menu');
+    let pinEffectButton = document.querySelector('#pin');
+    pinEffectButton.addEventListener('click', pinEffect);
+
+    function pinEffect() {
+        pinEffectFlag = !pinEffectFlag;
+        resetNodes();
+        hideMenu();
+    }
+
+    function onContextMenu(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        let localPos = toLocalPos(e.pageX, e.pageY)
+        showMenu(localPos.x, localPos.y);
+        canvas.addEventListener('mousedown', onMouseDown);
+        if (pinEffectFlag) {
+            document.querySelector('#pin span').innerText = '关闭图钉效果';
+        } else {
+            document.querySelector('#pin span').innerText = '启用图钉效果';
+        }
+    }
+
+    function onMouseDown(e) {
+        hideMenu();
+        document.removeEventListener('mousedown', onMouseDown);
+    }
+
+    function showMenu(x, y) {
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+        menu.classList.add('show-menu');
+    }
+
+    function hideMenu() {
+        menu.classList.remove('show-menu');
+    }
 
     function stagePointerDown(event) {
         if (!nodeFlag) {
@@ -677,7 +696,7 @@ function initEvent(canvas) {
     }
 
     function stagePointerMove(event) {
-        if (canvasDragging && !nodeFlag) {
+        if (canvasDragging && !nodeFlag && event.which === 1) {
             //Move  circle
             let x = event.pageX;
             let y = event.pageY;
@@ -698,7 +717,6 @@ function initEvent(canvas) {
         }
 
     }
-
 }
 
 function toLocalPos(x, y) {
@@ -723,4 +741,4 @@ function drawCircle(x, y, r = 30) {
     dragContainer.addChild(cGraphics);
 }
 
-export default CiCi;
+export default CreateCharts;
